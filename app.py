@@ -3,16 +3,18 @@ import streamlit as st
 import base64
 from openai import OpenAI
 import openai
+#from PIL import Image
 import tensorflow as tf
 from PIL import Image, ImageOps
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import streamlit as st
 from streamlit_drawable_canvas import st_canvas
 
-Expert = " "
-profile_imgenh = " "
-
+Expert=" "
+profile_imgenh=" "
+    
 def encode_image_to_base64(image_path):
     try:
         with open(image_path, "rb") as image_file:
@@ -28,75 +30,97 @@ st.title('Tablero Inteligente')
 with st.sidebar:
     st.subheader("Acerca de:")
     st.subheader("En esta aplicación veremos la capacidad que ahora tiene una máquina de interpretar un boceto")
-    
-    st.subheader("Herramientas de dibujo")
-    # Añadir 5 colores para el tablero
-    color_opcion = st.selectbox(
-        "Selecciona el color del trazo:",
-        ("Negro", "Rojo", "Azul", "Verde", "Amarillo")
-    )
-    
-    diccionario_colores = {
-        "Negro": "#000000",
-        "Rojo": "#FF0000",
-        "Azul": "#0000FF",
-        "Verde": "#008000",
-        "Amarillo": "#FFFF00"
-    }
-    stroke_color = diccionario_colores[color_opcion]
-    
-    stroke_width = st.slider('Selecciona el ancho de línea', 1, 30, 5)
+st.subheader("Dibuja el boceto en el panel  y presiona el botón para analizarla")
 
-st.subheader("Dibuja el boceto en el panel y presiona el botón para analizarla")
-
+# Add canvas component
+#bg_image = st.sidebar.file_uploader("Cargar Imagen:", type=["png", "jpg"])
+# Specify canvas parameters in application
 drawing_mode = "freedraw"
-bg_color = '#FFFFFF'
+stroke_width = st.sidebar.slider('Selecciona el ancho de línea', 1, 30, 5)
+#stroke_color = '#FFFFFF' # Set background color to white
+#bg_color = '#000000'
 
-# Create a canvas component (Dimensiones más grandes)
+# --- LO QUE SE AGREGÓ: Selector de 5 colores ---
+color_opcion = st.sidebar.selectbox(
+    "Selecciona el color del trazo:",
+    ("Negro", "Rojo", "Azul", "Verde", "Amarillo")
+)
+diccionario_colores = {
+    "Negro": "#000000",
+    "Rojo": "#FF0000",
+    "Azul": "#0000FF",
+    "Verde": "#008000",
+    "Amarillo": "#FFFF00"
+}
+stroke_color = diccionario_colores[color_opcion]
+# -----------------------------------------------
+
+bg_color = '#FFFFFF'
+#realtime_update = st.sidebar.checkbox("Update in realtime", True)
+
+
+# Create a canvas component
 canvas_result = st_canvas(
-    fill_color="rgba(255, 165, 0, 0.3)",  
+    fill_color="rgba(255, 165, 0, 0.3)",  # Fixed fill color with some opacity
     stroke_width=stroke_width,
     stroke_color=stroke_color,
     background_color=bg_color,
-    height=500, # Aumentado de 300 a 500
-    width=700,  # Aumentado de 400 a 700
+    height=500, # LO QUE SE AGREGÓ: tablero más grande (antes 300)
+    width=700,  # LO QUE SE AGREGÓ: tablero más grande (antes 400)
+    #background_image= None #Image.open(bg_image) if bg_image else None,
     drawing_mode=drawing_mode,
     key="canvas",
 )
 
-ke = st.text_input('Ingresa tu Clave', type="password") # Cambiado a tipo password por seguridad
+ke = st.text_input('Ingresa tu Clave')
+#os.environ['OPENAI_API_KEY'] = st.secrets['OPENAI_API_KEY']
+os.environ['OPENAI_API_KEY'] = ke
 
-# Manejo seguro de la API KEY
-if ke:
-    os.environ['OPENAI_API_KEY'] = ke
-    api_key = os.environ['OPENAI_API_KEY']
-    client = OpenAI(api_key=api_key)
-else:
-    api_key = None
+
+# Retrieve the OpenAI API Key from secrets
+api_key = os.environ['OPENAI_API_KEY']
+
+# Initialize the OpenAI client with the API key
+client = OpenAI(api_key=api_key)
 
 analyze_button = st.button("Analiza la imagen", type="secondary")
 
 # Check if an image has been uploaded, if the API key is available, and if the button has been pressed
 if canvas_result.image_data is not None and api_key and analyze_button:
 
-    with st.spinner("Analizando y creando historia..."):
+    with st.spinner("Analizando ..."):
         # Encode the image
         input_numpy_array = np.array(canvas_result.image_data)
         input_image = Image.fromarray(input_numpy_array.astype('uint8'),'RGBA')
         input_image.save('img.png')
         
-        # Codificar la imagen en base64
+      # Codificar la imagen en base64
+ 
         base64_image = encode_image_to_base64("img.png")
             
-        # Modificación del prompt para pedir una historia básica
-        prompt_text = "Analiza la imagen adjunta y descríbela en español. Luego, basándote estrictamente en lo que ves en el dibujo, inventa y escribe una pequeña historia básica."
+        # LO QUE SE AGREGÓ: Modificación del prompt para la historia básica
+        prompt_text = (f"Describe the image in spanish. Luego, basándote en lo que ves, inventa y escribe una pequeña historia básica.")
+    
+      # Create the payload for the completion request
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt_text},
+                    {
+                        "type": "image_url",
+                        "image_url":f"data:image/png;base64,{base64_image}",
+                    },
+                ],
+            }
+        ]
     
         # Make the request to the OpenAI API
         try:
             full_response = ""
             message_placeholder = st.empty()
             response = openai.chat.completions.create(
-              model= "gpt-4o-mini",
+              model= "gpt-4o-mini",  #o1-preview ,gpt-4o-mini
               messages=[
                 {
                    "role": "user",
@@ -111,22 +135,23 @@ if canvas_result.image_data is not None and api_key and analyze_button:
                    ],
                   }
                 ],
-              max_tokens=800, # Aumenté los tokens para que alcance a escribir la historia completa
+              max_tokens=800, # LO QUE SE AGREGÓ: más tokens para permitir que escriba la historia completa (antes 500)
               )
-            
+            #response.choices[0].message.content
             if response.choices[0].message.content is not None:
                     full_response += response.choices[0].message.content
                     message_placeholder.markdown(full_response + "▌")
-            
             # Final update to placeholder after the stream ends
             message_placeholder.markdown(full_response)
-            
-            if Expert == profile_imgenh:
-                st.session_state.mi_respuesta = response.choices[0].message.content 
+            if Expert== profile_imgenh:
+               st.session_state.mi_respuesta= response.choices[0].message.content #full_response 
     
+            # Display the response in the app
+            #st.write(response.choices[0])
         except Exception as e:
             st.error(f"An error occurred: {e}")
 else:
     # Warnings for user action required
+
     if not api_key:
         st.warning("Por favor ingresa tu API key.")
